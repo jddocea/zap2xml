@@ -229,8 +229,8 @@ export async function getOverviewDetails(
 interface CacheEntry {
   /** asset id, or "" if the show has no series image */
   image: string;
-  /** ms since epoch */
-  fetched: number;
+  /** ISO timestamp, e.g. "2026-11-19T22:00:00.000Z" (older caches may hold ms since epoch) */
+  fetched: string | number;
 }
 
 function cachePath(): string {
@@ -250,7 +250,11 @@ function loadCache(): Record<string, CacheEntry> {
 
 function saveCache(cache: Record<string, CacheEntry>): void {
   try {
-    writeFileSync(cachePath(), JSON.stringify(cache));
+    // Sorted by series id and indented so the file is easy to read and diff.
+    const sorted = Object.fromEntries(
+      Object.entries(cache).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    writeFileSync(cachePath(), JSON.stringify(sorted, null, 2) + "\n");
   } catch (err) {
     console.warn("Could not write series image cache:", err);
   }
@@ -274,7 +278,7 @@ async function attachSeriesImages(channels: Channel[]): Promise<void> {
   const cache = loadCache();
   const now = Date.now();
   const missing = [...seriesIds].filter(
-    (id) => !cache[id] || now - cache[id].fetched > ttlMs,
+    (id) => !cache[id] || now - new Date(cache[id].fetched).getTime() > ttlMs,
   );
   const toFetch = missing.slice(0, maxPerRun);
 
@@ -289,7 +293,12 @@ async function attachSeriesImages(channels: Channel[]): Promise<void> {
     if (i > 0) await sleep(delayMs);
     try {
       const details = await getOverviewDetails(id);
-      if (details) cache[id] = { image: details.seriesImage || "", fetched: now };
+      if (details) {
+        cache[id] = {
+          image: details.seriesImage || "",
+          fetched: new Date(now).toISOString(),
+        };
+      }
     } catch (err) {
       if (err instanceof RateLimitedError) {
         console.log(
