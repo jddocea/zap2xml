@@ -131,9 +131,18 @@ export function buildProgramsXml(data: GridApiResponse): string {
           xml += `    <episode-num system="dd_progid">${escapeXml(event.program.id)}</episode-num>\n`;
         }
 
-        xml += `    <episode-num system="xmltv_ns">${escapeXml(
-          `${event.program.season} . ${event.program.episode}`,
-        )}.</episode-num>\n`;
+        // xmltv_ns is zero-based: S05E217 is "4.216." (season.episode.part).
+        // Skip it if the numbers aren't plain positive integers; onscreen/common still carry them.
+        const seasonNum = Number(event.program.season);
+        const episodeNum = Number(event.program.episode);
+        if (
+          Number.isInteger(seasonNum) &&
+          Number.isInteger(episodeNum) &&
+          seasonNum >= 1 &&
+          episodeNum >= 1
+        ) {
+          xml += `    <episode-num system="xmltv_ns">${seasonNum - 1}.${episodeNum - 1}.</episode-num>\n`;
+        }
       }
 
       // Prefer show-level art (from overviewDetails); fall back to the episode thumbnail.

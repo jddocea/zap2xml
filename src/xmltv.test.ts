@@ -101,10 +101,15 @@ describe("buildXmltv", () => {
 
   it("should include episode information", () => {
     const result = buildXmltv(mockData);
-    expect(result).toContain('<episode-num system="season">5</episode-num>');
-    expect(result).toContain('<episode-num system="episode">217</episode-num>');
     expect(result).toContain(
-      '<episode-num system="series">SH05918266</episode-num>',
+      '<episode-num system="onscreen">S05E217</episode-num>',
+    );
+    expect(result).toContain(
+      '<episode-num system="common">S05E217</episode-num>',
+    );
+    // xmltv_ns is zero-based: season 5, episode 217 -> "4.216."
+    expect(result).toContain(
+      '<episode-num system="xmltv_ns">4.216.</episode-num>',
     );
   });
 
@@ -275,13 +280,18 @@ describe("buildProgramsXml", () => {
     expect(result).toContain("<new />");
     expect(result).toContain('<audio type="stereo" />');
     expect(result).toContain('<audio type="cc" />');
-    expect(result).toContain('<episode-num system="season">5</episode-num>');
-    expect(result).toContain('<episode-num system="episode">217</episode-num>');
     expect(result).toContain(
-      '<episode-num system="series">SH05918266</episode-num>',
+      '<episode-num system="onscreen">S05E217</episode-num>',
     );
     expect(result).toContain(
-      '<icon src="https://zap2it.tmsimg.com/assets/p30687311_b_v13_aa.jpg" />',
+      '<episode-num system="common">S05E217</episode-num>',
+    );
+    // xmltv_ns is zero-based: season 5, episode 217 -> "4.216."
+    expect(result).toContain(
+      '<episode-num system="xmltv_ns">4.216.</episode-num>',
+    );
+    expect(result).toContain(
+      '<icon src="https://zpmc.tmsimg.com/assets/p30687311_b_v13_aa.jpg" />',
     );
   });
 
@@ -339,5 +349,72 @@ describe("buildProgramsXml", () => {
     expect(result).not.toContain("<category>");
     expect(result).not.toContain("<episode-num");
     expect(result).not.toContain("<icon");
+  });
+
+  describe("previously-shown", () => {
+    const withFlags = (flag: string[] | undefined): GridApiResponse => ({
+      channels: [
+        {
+          ...mockData.channels[0],
+          events: [{ ...mockData.channels[0].events[0], flag: flag as string[] }],
+        },
+      ],
+    });
+
+    it.each([
+      ["no flags", []],
+      ["missing flags", undefined],
+      ["Premiere without New", ["Premiere"]],
+      ["Finale without New", ["Finale"]],
+    ])("marks a rerun with %s as previously shown", (_label, flag) => {
+      expect(buildProgramsXml(withFlags(flag))).toContain(
+        "<previously-shown />",
+      );
+    });
+
+    it.each([
+      ["New", ["New"]],
+      ["Live", ["Live"]],
+      ["New Premiere", ["New", "Premiere"]],
+    ])("does not mark %s as previously shown", (_label, flag) => {
+      expect(buildProgramsXml(withFlags(flag))).not.toContain(
+        "<previously-shown />",
+      );
+    });
+  });
+
+  describe("xmltv_ns episode numbering", () => {
+    const withEpisode = (season: string, episode: string): GridApiResponse => ({
+      channels: [
+        {
+          ...mockData.channels[0],
+          events: [
+            {
+              ...mockData.channels[0].events[0],
+              program: { ...mockData.channels[0].events[0].program, season, episode },
+            },
+          ],
+        },
+      ],
+    });
+
+    it.each([
+      ["S1E1", "1", "1", "0.0."],
+      ["S5E217", "5", "217", "4.216."],
+      ["S12E3", "12", "3", "11.2."],
+    ])("writes %s as zero-based", (_label, season, episode, expected) => {
+      expect(buildProgramsXml(withEpisode(season, episode))).toContain(
+        `<episode-num system="xmltv_ns">${expected}</episode-num>`,
+      );
+    });
+
+    it.each([
+      ["season 0", "0", "4"],
+      ["non-numeric episode", "2", "3a"],
+    ])("skips xmltv_ns for %s", (_label, season, episode) => {
+      const result = buildProgramsXml(withEpisode(season, episode));
+      expect(result).not.toContain('system="xmltv_ns"');
+      expect(result).toContain('system="onscreen"');
+    });
   });
 });
