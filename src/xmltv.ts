@@ -102,13 +102,10 @@ export function buildProgramsXml(data: GridApiResponse): string {
         }
       }
 
-      if (
-        !event.flag ||
-        (event.flag &&
-          event.flag.length > 0 &&
-          !event.flag.includes("New") &&
-          !event.flag.includes("Live"))
-      ) {
+      // Anything not flagged New or Live is a rerun, including events with no flags at all
+      // (the common case for reruns). Premiere/Finale without New are also reruns.
+      const flags = event.flag ?? [];
+      if (!flags.includes("New") && !flags.includes("Live")) {
         xml += `    <previously-shown />\n`;
       }
 
