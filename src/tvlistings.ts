@@ -50,6 +50,15 @@ export interface Event {
   tags: string[];
   /** "program": {...} */
   program: Program;
+  /** Series/show-level image asset id from overviewDetails, e.g. "p185044_b_h9_aa" (added by us, not in grid response) */
+  seriesImage?: string;
+}
+
+export interface OverviewDetailsResponse {
+  /** Show-level artwork asset id, e.g. "p185044_b_h9_aa" */
+  seriesImage?: string;
+  seriesDescription?: string;
+  seriesGenres?: string;
 }
 
 export interface Channel {
@@ -99,6 +108,8 @@ function buildUrl(time: number, timespan: number): string {
 
   const urlParams = new URLSearchParams(params).toString();
 
+  console.log(urlParams)
+
   return `${config.baseUrl}?${urlParams}`;
 }
 
@@ -147,5 +158,87 @@ export async function getTVListings(): Promise<GridApiResponse> {
 
   await Promise.all(fetchPromises);
 
-  return { channels: Array.from(channelsMap.values()) };
+  const channels = Array.from(channelsMap.values());
+  await attachSeriesImages(channels);
+
+  return { channels };
+}
+
+/**
+ * POST https://tvlistings.gracenote.com/api/program/overviewDetails
+ * This is the call the tvlistings.gracenote.com "program overview" popup makes.
+ * It is keyed by series id (SH/MV/SP...), so one request covers every episode of a show.
+ */
+export async function getOverviewDetails(
+  seriesId: string,
+): Promise<OverviewDetailsResponse | null> {
+  const body = new URLSearchParams({
+    programSeriesID: seriesId,
+    "clickstream[FromPage]": "TV Grid",
+    postalCode: config.postalCode,
+    countryCode: config.country,
+    headendId: config.headendId,
+    timezone: config.timezone,
+    aid: "orbebb",
+    languagecode: "en-us",
+    device: "X",
+    userId: "-",
+  });
+
+  try {
+    const response = await fetch(
+      "https://tvlistings.gracenote.com/api/program/overviewDetails",
+      {
+        method: "POST",
+        headers: {
+          "User-Agent": config.userAgent || "",
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest",
+          // Without Origin/Referer from the affiliate grid page, Gracenote returns 403.
+          Origin: "https://tvlistings.gracenote.com",
+          Referer:
+            "https://tvlistings.gracenote.com/grid-affiliates.html?aid=orbebb",
+        },
+        body,
+      },
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as OverviewDetailsResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function attachSeriesImages(channels: Channel[]): Promise<void> {
+  if (process.env["SERIES_IMAGES"] === "false") return;
+
+  const seriesIds = new Set<string>();
+  for (const channel of channels) {
+    for (const event of channel.events) {
+      const id = event.seriesId || event.program?.seriesId;
+      if (id) seriesIds.add(id);
+    }
+  }
+
+  console.log(`Fetching series images for ${seriesIds.size} shows`);
+
+  const images = new Map<string, string>();
+  const queue = [...seriesIds];
+  const concurrency = 5; // keep it polite; one request per unique show
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      for (let id = queue.shift(); id; id = queue.shift()) {
+        const details = await getOverviewDetails(id);
+        if (details?.seriesImage) images.set(id, details.seriesImage);
+      }
+    }),
+  );
+
+  for (const channel of channels) {
+    for (const event of channel.events) {
+      const id = event.seriesId || event.program?.seriesId;
+      const img = id ? images.get(id) : undefined;
+      if (img) event.seriesImage = img;
+    }
+  }
 }

@@ -139,10 +139,12 @@ export function buildProgramsXml(data: GridApiResponse): string {
         )}.</episode-num>\n`;
       }
 
-      if (event.thumbnail) {
-        const src = event.thumbnail.startsWith("http")
-          ? event.thumbnail
-          : "https://zpmc.tmsimg.com/assets/" + event.thumbnail + ".jpg";
+      // Prefer show-level art (from overviewDetails); fall back to the episode thumbnail.
+      const image = event.seriesImage || event.thumbnail;
+      if (image) {
+        const src = image.startsWith("http")
+          ? image
+          : "https://zpmc.tmsimg.com/assets/" + image + ".jpg";
         xml += `    <icon src="${escapeXml(src)}" />\n`;
       }
 

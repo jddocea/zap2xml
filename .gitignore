@@ -7,3 +7,5 @@ dist
 
 compose.yaml
 xmltv.xml
+
+.DS_Store
