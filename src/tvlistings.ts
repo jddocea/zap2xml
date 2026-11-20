@@ -235,8 +235,20 @@ export async function getOverviewDetails(
     },
   );
   if (response.status === 429) throw new RateLimitedError();
+  // Unknown show: treat as "no series image" so it's cached and not retried every run.
+  if (response.status === 404 || response.status === 410) return {};
   if (!response.ok) throw new LookupError(response.status);
-  return (await response.json()) as OverviewDetailsResponse;
+
+  // If Gracenote answers 200 with an empty or non-JSON body (no overview for this show),
+  // treat that the same as "not found" rather than as a failure.
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    const data = JSON.parse(text) as unknown;
+    return data && typeof data === "object" ? (data as OverviewDetailsResponse) : {};
+  } catch {
+    return {};
+  }
 }
 
 interface CacheEntry {
@@ -275,14 +287,29 @@ function saveCache(cache: Record<string, CacheEntry>): void {
   }
 }
 
+/**
+ * Reads a "number of days" env var and returns milliseconds.
+ * Any negative value (e.g. -1) means "never" and returns Infinity.
+ * Missing or invalid values fall back to the default.
+ */
+function daysSetting(name: string, defaultDays: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return defaultDays * 86_400_000;
+  const days = Number(raw);
+  if (!Number.isFinite(days)) {
+    console.warn(`${name}="${raw}" is not a number; using the default of ${defaultDays}`);
+    return defaultDays * 86_400_000;
+  }
+  return days < 0 ? Infinity : days * 86_400_000;
+}
+
 async function attachSeriesImages(channels: Channel[]): Promise<void> {
   if (process.env["SERIES_IMAGES"] === "false") return;
 
-  const ttlMs = Number(process.env["SERIES_CACHE_DAYS"] || "14") * 86_400_000;
+  const ttlMs = daysSetting("SERIES_CACHE_DAYS", 14);
   const delayMs = Number(process.env["SERIES_DELAY_MS"] || "1500");
   const maxPerRun = Number(process.env["SERIES_MAX_PER_RUN"] || "150");
-  const pruneMs =
-    Number(process.env["SERIES_CACHE_PRUNE_DAYS"] || "90") * 86_400_000;
+  const pruneMs = daysSetting("SERIES_CACHE_PRUNE_DAYS", 90);
 
   const seriesIds = new Set<string>();
   for (const channel of channels) {
