@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GridApiResponse } from "./tvlistings.js";
 import { getTVListings } from "./tvlistings.js";
 
+// These tests only cover the grid; don't make series image lookups or write a cache file.
+process.env["SERIES_IMAGES"] = "false";
+
 // Mock fetch globally
 const mockFetch = vi.fn();
 global.fetch = mockFetch;

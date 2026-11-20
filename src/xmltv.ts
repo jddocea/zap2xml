@@ -79,7 +79,9 @@ export function buildProgramsXml(data: GridApiResponse): string {
       }
 
       if (event.rating) {
-        xml += `    <rating system="MPAA"><value>${escapeXml(
+        // TV Parental Guidelines (TV-Y, TV-PG, TV-MA...) are VCHIP; film ratings (PG-13, R...) are MPAA.
+        const ratingSystem = /^TV-/i.test(event.rating) ? "VCHIP" : "MPAA";
+        xml += `    <rating system="${ratingSystem}"><value>${escapeXml(
           event.rating,
         )}</value></rating>\n`;
       }

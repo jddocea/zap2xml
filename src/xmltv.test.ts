@@ -88,7 +88,7 @@ describe("buildXmltv", () => {
   it("should include rating information", () => {
     const result = buildXmltv(mockData);
     expect(result).toContain(
-      '<rating system="MPAA"><value>TV-PG</value></rating>',
+      '<rating system="VCHIP"><value>TV-PG</value></rating>',
     );
   });
 
@@ -96,7 +96,7 @@ describe("buildXmltv", () => {
     const result = buildXmltv(mockData);
     expect(result).toContain("<new />");
     expect(result).toContain('<audio type="stereo" />');
-    expect(result).toContain('<audio type="cc" />');
+    expect(result).toContain('<subtitles type="teletext" />');
   });
 
   it("should include episode information", () => {
@@ -275,11 +275,11 @@ describe("buildProgramsXml", () => {
       "<desc>BIA performs; comic Zarna Garg; lifestyle contributor Lori Bergamotto; ABC News chief medical correspondent Dr. Tara Narula.</desc>",
     );
     expect(result).toContain(
-      '<rating system="MPAA"><value>TV-PG</value></rating>',
+      '<rating system="VCHIP"><value>TV-PG</value></rating>',
     );
     expect(result).toContain("<new />");
     expect(result).toContain('<audio type="stereo" />');
-    expect(result).toContain('<audio type="cc" />');
+    expect(result).toContain('<subtitles type="teletext" />');
     expect(result).toContain(
       '<episode-num system="onscreen">S05E217</episode-num>',
     );
@@ -415,6 +415,28 @@ describe("buildProgramsXml", () => {
       const result = buildProgramsXml(withEpisode(season, episode));
       expect(result).not.toContain('system="xmltv_ns"');
       expect(result).toContain('system="onscreen"');
+    });
+  });
+
+  describe("rating system", () => {
+    const withRating = (rating: string): GridApiResponse => ({
+      channels: [
+        {
+          ...mockData.channels[0],
+          events: [{ ...mockData.channels[0].events[0], rating }],
+        },
+      ],
+    });
+
+    it.each([
+      ["TV-PG", "VCHIP"],
+      ["TV-MA", "VCHIP"],
+      ["PG-13", "MPAA"],
+      ["R", "MPAA"],
+    ])("labels %s as %s", (rating, system) => {
+      expect(buildProgramsXml(withRating(rating))).toContain(
+        `<rating system="${system}"><value>${rating}</value></rating>`,
+      );
     });
   });
 });

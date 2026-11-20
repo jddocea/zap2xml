@@ -100,7 +100,8 @@ function buildUrl(time: number, timespan: number): string {
     timezone: config.timezone,
     postalCode: config.postalCode,
     isOverride: "true",
-    pref: config.pref + "16,128" || "16,128",
+    // User prefs (e.g. "m,p,h") plus the flags we always need, comma separated.
+    pref: [config.pref, "16,128"].filter(Boolean).join(","),
     aid: "orbebb",
     languagecode: "en-us",
     time: time.toString(),
@@ -120,6 +121,9 @@ export async function getTVListings(): Promise<GridApiResponse> {
   const chunkHours = 6; // Gracenote allows up to 6 hours per request
   const now = Math.floor(Date.now() / 1000); // Current time in UNIX timestamp
   const channelsMap: Map<string, Channel> = new Map();
+  // Start times already added per channel. A show that overlaps a 6-hour chunk
+  // boundary can come back in both chunks, so skip the repeat.
+  const seenStarts: Map<string, Set<string>> = new Map();
 
   for (let offset = 0; offset < totalHours; offset += chunkHours) {
     const time = now + offset * 3600;
@@ -139,15 +143,18 @@ export async function getTVListings(): Promise<GridApiResponse> {
     const chunkData = (await response.json()) as GridApiResponse;
 
     for (const newChannel of chunkData.channels) {
-      if (!channelsMap.has(newChannel.channelId)) {
-        // Clone channel with its events
-        channelsMap.set(newChannel.channelId, {
-          ...newChannel,
-          events: [...newChannel.events],
-        });
-      } else {
-        const existingChannel = channelsMap.get(newChannel.channelId)!;
-        existingChannel.events.push(...newChannel.events);
+      let channel = channelsMap.get(newChannel.channelId);
+      if (!channel) {
+        // Clone channel; events are added below
+        channel = { ...newChannel, events: [] };
+        channelsMap.set(newChannel.channelId, channel);
+        seenStarts.set(newChannel.channelId, new Set());
+      }
+      const seen = seenStarts.get(newChannel.channelId)!;
+      for (const event of newChannel.events) {
+        if (seen.has(event.startTime)) continue;
+        seen.add(event.startTime);
+        channel.events.push(event);
       }
     }
   }
@@ -183,6 +190,12 @@ async function fetchWithRetry(
 }
 
 class RateLimitedError extends Error {}
+
+class LookupError extends Error {
+  constructor(public status: number) {
+    super(`HTTP ${status}`);
+  }
+}
 
 /**
  * POST https://tvlistings.gracenote.com/api/program/overviewDetails
@@ -222,7 +235,7 @@ export async function getOverviewDetails(
     },
   );
   if (response.status === 429) throw new RateLimitedError();
-  if (!response.ok) return null;
+  if (!response.ok) throw new LookupError(response.status);
   return (await response.json()) as OverviewDetailsResponse;
 }
 
@@ -293,6 +306,11 @@ async function attachSeriesImages(channels: Channel[]): Promise<void> {
         : ""),
   );
 
+  const maxConsecutiveFailures = 10;
+  let consecutiveFailures = 0;
+  let totalFailures = 0;
+  let lastError = "";
+
   for (const [i, id] of toFetch.entries()) {
     if (i > 0) await sleep(delayMs);
     try {
@@ -303,6 +321,7 @@ async function attachSeriesImages(channels: Channel[]): Promise<void> {
           fetched: new Date(now).toISOString(),
         };
       }
+      consecutiveFailures = 0;
     } catch (err) {
       if (err instanceof RateLimitedError) {
         console.log(
@@ -310,8 +329,23 @@ async function attachSeriesImages(channels: Channel[]): Promise<void> {
         );
         break;
       }
-      // network error: skip this show, try again next run
+      // HTTP or network error: skip this show, try again next run
+      consecutiveFailures++;
+      totalFailures++;
+      lastError = err instanceof Error ? err.message : String(err);
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        console.warn(
+          `Series images: ${consecutiveFailures} lookups failed in a row (last error: ${lastError}); ` +
+            "stopping for this run. Gracenote may have changed or blocked the overviewDetails endpoint.",
+        );
+        break;
+      }
     }
+  }
+  if (totalFailures > 0 && consecutiveFailures < maxConsecutiveFailures) {
+    console.warn(
+      `Series images: ${totalFailures} lookups failed (last error: ${lastError}); they'll be retried next run`,
+    );
   }
 
   // Remember which shows are in the lineup now, then drop shows not seen for a while

@@ -7,5 +7,6 @@ dist
 
 compose.yaml
 xmltv.xml
+series-images.json
 
 .DS_Store
