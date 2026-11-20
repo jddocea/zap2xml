@@ -62,6 +62,7 @@ By default, each programme's `<icon>` uses the show's artwork (from Gracenote's 
 | `SERIES_IMAGES`      | Set to `false` to use episode images only and skip the extra lookups.                                                | (enabled)                                  |
 | `SERIES_CACHE`       | Path of the series image cache file. Keep it on a mounted volume in Docker so it survives restarts.                  | `series-images.json` next to `OUTPUT_FILE` |
 | `SERIES_CACHE_DAYS`  | Days before a cached show image is looked up again.                                                                   | 14                                         |
+| `SERIES_CACHE_PRUNE_DAYS` | Days a show can be missing from your lineup before it's removed from the cache.                                  | 90                                         |
 | `SERIES_DELAY_MS`    | Milliseconds to wait between show lookups. Raise this if you see `429 Too Many Requests`.                             | 1500                                       |
 | `SERIES_MAX_PER_RUN` | Maximum show lookups per run. Shows not looked up yet use the episode image until a later run fills them in.          | 150                                        |
 

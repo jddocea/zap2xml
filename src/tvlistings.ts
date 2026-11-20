@@ -231,6 +231,8 @@ interface CacheEntry {
   image: string;
   /** ISO timestamp, e.g. "2026-11-19T22:00:00.000Z" (older caches may hold ms since epoch) */
   fetched: string | number;
+  /** ISO timestamp of the last run where this show was in the lineup; used for pruning */
+  lastSeen?: string;
 }
 
 function cachePath(): string {
@@ -266,6 +268,8 @@ async function attachSeriesImages(channels: Channel[]): Promise<void> {
   const ttlMs = Number(process.env["SERIES_CACHE_DAYS"] || "14") * 86_400_000;
   const delayMs = Number(process.env["SERIES_DELAY_MS"] || "1500");
   const maxPerRun = Number(process.env["SERIES_MAX_PER_RUN"] || "150");
+  const pruneMs =
+    Number(process.env["SERIES_CACHE_PRUNE_DAYS"] || "90") * 86_400_000;
 
   const seriesIds = new Set<string>();
   for (const channel of channels) {
@@ -308,6 +312,24 @@ async function attachSeriesImages(channels: Channel[]): Promise<void> {
       }
       // network error: skip this show, try again next run
     }
+  }
+
+  // Remember which shows are in the lineup now, then drop shows not seen for a while
+  // so the cache doesn't grow forever.
+  const nowIso = new Date(now).toISOString();
+  for (const id of seriesIds) {
+    if (cache[id]) cache[id].lastSeen = nowIso;
+  }
+  let pruned = 0;
+  for (const [id, entry] of Object.entries(cache)) {
+    const seen = new Date(entry.lastSeen ?? entry.fetched).getTime();
+    if (!(now - seen <= pruneMs)) {
+      delete cache[id];
+      pruned++;
+    }
+  }
+  if (pruned > 0) {
+    console.log(`Series images: pruned ${pruned} shows not seen in the lineup recently`);
   }
 
   saveCache(cache);
