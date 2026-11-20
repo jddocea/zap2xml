@@ -53,6 +53,20 @@ See [Environment variables](#environment-variables) for configuration options.
 | `SLEEP_TIME`  | Sleep time before next run in seconds (default: 21600, Only used with Docker.)                                  | 21600                            |
 | `OUTPUT_FILE` | Output file name (default: xmltv.xml)                                                                           | xmltv.xml                        |
 
+#### Series images
+
+By default, each programme's `<icon>` uses the show's artwork (from Gracenote's program overview), falling back to the episode image when a show has none. Show images are looked up once per show and cached to disk, so after the first few runs very few extra requests are made.
+
+| Variable             | Description                                                                                                           | Default                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `SERIES_IMAGES`      | Set to `false` to use episode images only and skip the extra lookups.                                                | (enabled)                                  |
+| `SERIES_CACHE`       | Path of the series image cache file. Keep it on a mounted volume in Docker so it survives restarts.                  | `series-images.json` next to `OUTPUT_FILE` |
+| `SERIES_CACHE_DAYS`  | Days before a cached show image is looked up again.                                                                   | 14                                         |
+| `SERIES_DELAY_MS`    | Milliseconds to wait between show lookups. Raise this if you see `429 Too Many Requests`.                             | 1500                                       |
+| `SERIES_MAX_PER_RUN` | Maximum show lookups per run. Shows not looked up yet use the episode image until a later run fills them in.          | 150                                        |
+
+If Gracenote rate-limits a run (`429`), zap2xml stops looking up show images for that run, uses episode images for the rest, and still writes the guide.
+
 ### Command line arguments
 
 | Argument       | Description                                                                                                     | Default                          |
@@ -83,6 +97,8 @@ If you want to run zap2xml in intervals, you can use a task scheduler like `cron
 ### Running in Docker
 
 You can run zap2xml in a Docker container. The `SLEEP_TIME` environment variable can be used to set the interval between runs. The default is 21600 seconds (6 hours).
+
+With series images enabled, the first run can only fill in up to `SERIES_MAX_PER_RUN` shows. To populate the cache faster, use a shorter `SLEEP_TIME` (e.g. `3600`) for the first few runs, then set it back.
 
 ## FAQ
 
